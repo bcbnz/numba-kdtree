@@ -354,26 +354,43 @@ def _make_kdtree(data, root_bbox, idx, leafsize=10, balanced=False, compact=Fals
     return kdtree
 
 
+@nb.njit(nogil=True, cache=True)
+def _compute_bounds(x):
+    n_points, n_features = x.shape
+    bbox = np.empty((2, n_features), dtype=x.dtype)
+    bbox[0] = x[0]
+    bbox[1] = x[0]
+
+    for i in range(1, n_points):
+        bbox[0] = np.minimum(x[i], bbox[0])
+        bbox[1] = np.maximum(x[i], bbox[1])
+
+    return bbox
+
+
 # constructor method
+@nb.generated_jit(nopython=True, nogil=True, cache=True)
 def KDTree(data: DataArray, leafsize: int = 10, compact: bool = False, balanced: bool = False, root_bbox=None):
     if data.dtype == np.float32:
         conv_dtype = np.float32
     else:
         conv_dtype = np.float64
 
-    data = np.ascontiguousarray(data).astype(conv_dtype)
-    n_data, n_features = data.shape
+    def KDTree_Impl(data: DataArray, leafsize: int = 10, compact: bool = False, balanced: bool = False, root_bbox=None):
+        data = np.ascontiguousarray(data).astype(conv_dtype)
+        n_data, n_features = data.shape
 
-    if root_bbox is None:
-        # compute the bounding box
-        mins = np.amin(data, axis=0) if n_data > 0 else np.zeros(n_features, dtype=conv_dtype)
-        maxes = np.amax(data, axis=0) if n_data > 0 else np.zeros(n_features, dtype=conv_dtype)
-        root_bbox = np.vstack((mins, maxes))
-    root_bbox = np.ascontiguousarray(root_bbox, dtype=conv_dtype)
+        if root_bbox is None:
+            # compute the bounding box
+            #mins = np.amin(data, axis=0) if n_data > 0 else np.zeros(n_features, dtype=conv_dtype)
+            #maxes = np.amax(data, axis=0) if n_data > 0 else np.zeros(n_features, dtype=conv_dtype)
+            root_bbox = _compute_bounds(data)
+            #root_bbox = np.vstack((mins, maxes))
+        root_bbox = np.ascontiguousarray(root_bbox).astype(conv_dtype)
 
-    idx = np.arange(n_data, dtype=INT_TYPE)
+        idx = np.arange(n_data, dtype=INT_TYPE)
 
-    tic = time.time()
-    kdtree = _make_kdtree(data, root_bbox, idx, leafsize, compact, balanced)
-    return kdtree
+        kdtree = _make_kdtree(data, root_bbox, idx, leafsize, compact, balanced)
+        return kdtree
+    return KDTree_Impl
 
